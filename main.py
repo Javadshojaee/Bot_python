@@ -71,16 +71,16 @@ def get_user_paths(update: Update):
 
 
 def fix_persian_text(text: str) -> str:
-    """اصلاح کامل حروف متصل و ترتیب کلمات فارسی."""
+    """اصلاح تخصصی حروف فارسی برای چاپ دقیق و درست روی عکس با Pillow."""
     try:
-        # اصلاح حروف و اتصال شکل‌ها
-        reshaped = arabic_reshaper.reshape(text)
-        # اصلاح جهت راست به چپ و معکوس کردن کلمات برای نمایش صحیح در Pillow
-        bidi_text = get_display(reshaped)
-        words = bidi_text.split(" ")
-        return " ".join(words[::-1])
+        # ۱. اتصال صحیح حروف به همدیگر
+        reshaped_text = arabic_reshaper.reshape(text)
+        # ۲. اعمال الگوریتم Bidi
+        bidi_text = get_display(reshaped_text)
+        # ۳. معکوس کردن متن برای رسم صحیح و خوانا روی تصویر در پایتون
+        return bidi_text[::-1]
     except Exception:
-        logger.exception("خطا در پردازش متن فارسی")
+        logger.exception("خطا در پردازش متن فارسی برای عکس")
         return text
 
 
@@ -147,7 +147,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         await update.message.reply_text("اول عکس را بفرست.", reply_markup=REPLY_KEYBOARD)
         return GET_PHOTO
 
-    # اصلاح متن فارسی
+    # اصلاح متن فارسی مخصوص عکس
     processed_text = fix_persian_text(user_text)
     context.user_data["text"] = processed_text
 
@@ -273,7 +273,7 @@ async def handle_color(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     return GET_PHOTO
 
 
-# وب‌سرور Flask برای زنده ماندن ربات روی رندر
+# وب‌سرور ساده Flask برای زنده ماندن ربات روی رندر
 app = Flask(__name__)
 
 
