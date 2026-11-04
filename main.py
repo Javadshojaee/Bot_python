@@ -113,7 +113,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """دریافت متن و آماده‌سازی نوشتار فارسی."""
+    """دریافت متن و اصلاح کامل حروف و جهت متن فارسی."""
     if not update.message or not update.message.text:
         return GET_TEXT
 
@@ -127,10 +127,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         return GET_PHOTO
 
     try:
+        # اصلاح حروف و اتصال صحیح + تنظیم جهت متن (بدون نیاز به معکوس‌سازی دستی)
         reshaped_text = arabic_reshaper.reshape(user_text)
         display_text = get_display(reshaped_text)
-        # اصلاح ترتیب کلمات فارسی برای نمایش صحیح روی عکس
-        display_text = " ".join(display_text.split()[::-1])
     except Exception:
         logger.exception("خطا هنگام آماده‌سازی متن فارسی")
         await update.message.reply_text(
@@ -268,7 +267,7 @@ async def handle_color(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     return GET_PHOTO
 
 
-# وب‌سرور ساده Flask
+# وب‌سرور ساده Flask برای زنده ماندن ربات روی رندر
 app = Flask(__name__)
 
 
@@ -283,10 +282,7 @@ def run_flask():
 
 def main():
     if not BOT_TOKEN:
-        raise RuntimeError(
-            "توکن ربات پیدا نشد. مطمئن شو فایل .env کنار main.py است "
-            "و داخل آن BOT_TOKEN=توکن_واقعی قرار دارد."
-        )
+        raise RuntimeError("توکن ربات پیدا نشد. لطفاً متغیر محیطی BOT_TOKEN را تنظیم کنید.")
 
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
@@ -320,7 +316,7 @@ def main():
 
     application.add_handler(conversation_handler)
 
-    print("🤖 ربات روشن شد. برای توقف Ctrl+C را بزن.")
+    print("🤖 ربات روشن شد.")
     application.run_polling()
 
 
