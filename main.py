@@ -22,6 +22,9 @@ from telegram.ext import (
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
+# کد فعال‌سازی اختصاصی خریداران (Jam87D)
+SECRET_ACTIVATION_CODE = "Jam87D"
+
 # تنظیم لاگ
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -29,10 +32,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-GET_PHOTO, GET_TEXT, GET_COLOR = range(3)
+# مراحل مکالمه: بررسی کد، گرفتن عکس، گرفتن متن، گرفتن رنگ
+CHECK_CODE, GET_PHOTO, GET_TEXT, GET_COLOR = range(4)
 RESTART_TEXT = "🔄 شروع مجدد / لغو"
 
-# صفحه‌کلید برای شروع دوباره
 REPLY_KEYBOARD = ReplyKeyboardMarkup(
     [[RESTART_TEXT]],
     resize_keyboard=True,
@@ -73,11 +76,8 @@ def get_user_paths(update: Update):
 def fix_persian_text(text: str) -> str:
     """اصلاح تخصصی حروف فارسی برای چاپ دقیق و درست روی عکس با Pillow."""
     try:
-        # ۱. اتصال صحیح حروف به همدیگر
         reshaped_text = arabic_reshaper.reshape(text)
-        # ۲. اعمال الگوریتم Bidi
         bidi_text = get_display(reshaped_text)
-        # ۳. معکوس کردن متن برای رسم صحیح و خوانا روی تصویر در پایتون
         return bidi_text[::-1]
     except Exception:
         logger.exception("خطا در پردازش متن فارسی برای عکس")
@@ -85,26 +85,55 @@ def fix_persian_text(text: str) -> str:
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """شروع ساخت استیکر یا شروع دوباره."""
+    """شروع ربات و درخواست کد فعال‌سازی از خریدار."""
     context.user_data.clear()
 
     if update.message:
         await update.message.reply_text(
-            "سلام! 👋\nعکسی را که می‌خواهی به استیکر تبدیل شود بفرست.",
+            "سلام! 👋 به ربات ساخت استیکر «بات مارکت» خوش آمدید.\n\n"
+            "لطفاً **کد فعال‌سازی** دریافتی پس از خرید از سایت را وارد کنید: 🔑",
             reply_markup=REPLY_KEYBOARD,
         )
-    return GET_PHOTO
+    return CHECK_CODE
 
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """لغو فرایند فعلی و بازگشت به مرحله دریافت عکس."""
+    """لغو فرایند فعلی و بازگشت به مرحله بررسی کد."""
     context.user_data.clear()
     if update.message:
         await update.message.reply_text(
-            "فرایند لغو شد. برای ساخت استیکر جدید، عکس بفرست.",
+            "فرایند لغو شد. برای ورود مجدد، لطفاً کد فعال‌سازی را بفرستید:",
             reply_markup=REPLY_KEYBOARD,
         )
-    return GET_PHOTO
+    return CHECK_CODE
+
+
+async def check_activation_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """بررسی صحت کد فعال‌سازی وارد شده توسط کاربر."""
+    if not update.message or not update.message.text:
+        return CHECK_CODE
+
+    user_input = update.message.text.strip()
+
+    if user_input == RESTART_TEXT:
+        return await cancel(update, context)
+
+    # مقایسه کد وارد شده با کد مخفی Jam87D
+    if user_input == SECRET_ACTIVATION_CODE:
+        context.user_data["is_activated"] = True
+        await update.message.reply_text(
+            "✅ کد فعال‌سازی با موفقیت تأیید شد!\n\n"
+            "حالا عکسی را که می‌خواهی به استیکر تبدیل شود بفرست 📷",
+            reply_markup=REPLY_KEYBOARD,
+        )
+        return GET_PHOTO
+    else:
+        await update.message.reply_text(
+            "❌ کد فعال‌سازی اشتباه است!\n"
+            "لطفاً کد درستی را که پس از خرید از سایت دریافت کرده‌اید دوباره وارد کنید:",
+            reply_markup=REPLY_KEYBOARD,
+        )
+        return CHECK_CODE
 
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -114,6 +143,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
     if update.message.text and update.message.text.strip() == RESTART_TEXT:
         return await cancel(update, context)
+
+    if not context.user_data.get("is_activated"):
+        return await start(update, context)
 
     if not update.message.photo:
         await update.message.reply_text("لطفاً یک تصویر ارسال کنید.", reply_markup=REPLY_KEYBOARD)
@@ -147,7 +179,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         await update.message.reply_text("اول عکس را بفرست.", reply_markup=REPLY_KEYBOARD)
         return GET_PHOTO
 
-    # اصلاح متن فارسی مخصوص عکس
     processed_text = fix_persian_text(user_text)
     context.user_data["text"] = processed_text
 
@@ -162,7 +193,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 def parse_color(color_input: str):
     """تبدیل نام رنگ فارسی یا کد HEX به رنگ قابل استفاده در Pillow."""
     normalized = color_input.strip().lower()
-
     persian_colors = {
         "سفید": "white",
         "مشکی": "black",
@@ -177,7 +207,6 @@ def parse_color(color_input: str):
         "قهوه‌ای": "brown",
         "قهوه ای": "brown",
     }
-
     return persian_colors.get(normalized, color_input.strip())
 
 
@@ -231,7 +260,6 @@ async def handle_color(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         x = (img.width - text_width) / 2 - bbox[0]
         y = max(5, img.height - text_height - 20 - bbox[1])
 
-        # رسم متن با دورخط مشکی برای خوانایی بهتر
         draw.text(
             (x, y),
             text,
@@ -270,10 +298,14 @@ async def handle_color(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
                     logger.warning("پاک‌کردن فایل موقت ناموفق بود: %s", path)
 
     context.user_data.clear()
-    return GET_PHOTO
+    await update.message.reply_text(
+        "برای ساخت استیکر جدید، لطفاً دوباره کد فعال‌سازی را وارد کنید:",
+        reply_markup=REPLY_KEYBOARD,
+    )
+    return CHECK_CODE
 
 
-# وب‌سرور ساده Flask برای زنده ماندن ربات روی رندر
+# وب‌سرور Flask
 app = Flask(__name__)
 
 
@@ -298,6 +330,9 @@ def main():
     conversation_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
+            CHECK_CODE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, check_activation_code)
+            ],
             GET_PHOTO: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, handle_photo),
                 MessageHandler(filters.PHOTO, handle_photo),
