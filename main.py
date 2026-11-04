@@ -70,6 +70,20 @@ def get_user_paths(update: Update):
     return photo_path, output_path
 
 
+def fix_persian_text(text: str) -> str:
+    """اصلاح کامل حروف متصل و ترتیب کلمات فارسی."""
+    try:
+        # اصلاح حروف و اتصال شکل‌ها
+        reshaped = arabic_reshaper.reshape(text)
+        # اصلاح جهت راست به چپ و معکوس کردن کلمات برای نمایش صحیح در Pillow
+        bidi_text = get_display(reshaped)
+        words = bidi_text.split(" ")
+        return " ".join(words[::-1])
+    except Exception:
+        logger.exception("خطا در پردازش متن فارسی")
+        return text
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """شروع ساخت استیکر یا شروع دوباره."""
     context.user_data.clear()
@@ -87,7 +101,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data.clear()
     if update.message:
         await update.message.reply_text(
-            "فرایند قبلی پاک شد. برای ساخت استیکر جدید، عکس بفرست.",
+            "فرایند لغو شد. برای ساخت استیکر جدید، عکس بفرست.",
             reply_markup=REPLY_KEYBOARD,
         )
     return GET_PHOTO
@@ -95,7 +109,14 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """دریافت عکس."""
-    if not update.message or not update.message.photo:
+    if not update.message:
+        return GET_PHOTO
+
+    if update.message.text and update.message.text.strip() == RESTART_TEXT:
+        return await cancel(update, context)
+
+    if not update.message.photo:
+        await update.message.reply_text("لطفاً یک تصویر ارسال کنید.", reply_markup=REPLY_KEYBOARD)
         return GET_PHOTO
 
     photo_path, output_path = get_user_paths(update)
@@ -113,7 +134,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """دریافت متن و اصلاح کامل حروف و جهت متن فارسی."""
+    """دریافت متن."""
     if not update.message or not update.message.text:
         return GET_TEXT
 
@@ -123,25 +144,16 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         return await cancel(update, context)
 
     if not context.user_data.get("photo_path"):
-        await update.message.reply_text("اول عکس را بفرست.")
+        await update.message.reply_text("اول عکس را بفرست.", reply_markup=REPLY_KEYBOARD)
         return GET_PHOTO
 
-    try:
-        # اصلاح حروف و اتصال صحیح + تنظیم جهت متن (بدون نیاز به معکوس‌سازی دستی)
-        reshaped_text = arabic_reshaper.reshape(user_text)
-        display_text = get_display(reshaped_text)
-    except Exception:
-        logger.exception("خطا هنگام آماده‌سازی متن فارسی")
-        await update.message.reply_text(
-            "در آماده‌سازی متن مشکلی پیش آمد. لطفاً متن را دوباره بفرست."
-        )
-        return GET_TEXT
-
-    context.user_data["text"] = display_text
+    # اصلاح متن فارسی
+    processed_text = fix_persian_text(user_text)
+    context.user_data["text"] = processed_text
 
     await update.message.reply_text(
         "✍️ متن ثبت شد!\n"
-        "حالا رنگ متن را بفرست؛ مثلاً «آبی»، «#FF0000» یا «سفید».",
+        "حالا رنگ متن را بفرست؛ مثلاً «آبی»، «قرمز»، «سفید» یا کد HEX مثل `#FF0000`.",
         reply_markup=REPLY_KEYBOARD,
     )
     return GET_COLOR
@@ -185,14 +197,14 @@ async def handle_color(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
     if not photo_path or not output_path or not text:
         await update.message.reply_text(
-            "اطلاعات عکس یا متن پیدا نشد. لطفاً دوباره از /start شروع کن."
+            "اطلاعات منقضی شد. لطفاً دوباره از /start شروع کن.",
+            reply_markup=REPLY_KEYBOARD,
         )
         return GET_PHOTO
 
     text_color = parse_color(color_input)
 
     try:
-        # بررسی معتبر بودن رنگ
         Image.new("RGB", (1, 1), color=text_color)
 
         with Image.open(photo_path) as source_image:
@@ -204,7 +216,6 @@ async def handle_color(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         font_size = 40
         font = get_font(font_size)
 
-        # کوچک کردن متن در صورت نیاز تا در عرض عکس جا شود
         max_text_width = max(20, img.width - 24)
         while font_size > 12:
             font = get_font(font_size)
@@ -220,7 +231,7 @@ async def handle_color(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         x = (img.width - text_width) / 2 - bbox[0]
         y = max(5, img.height - text_height - 20 - bbox[1])
 
-        # متن با دورخط مشکی
+        # رسم متن با دورخط مشکی برای خوانایی بهتر
         draw.text(
             (x, y),
             text,
@@ -239,18 +250,13 @@ async def handle_color(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
                 document=sticker_file,
                 filename="sticker.webp",
                 caption="✨ استیکرت آماده شد!",
+                reply_markup=REPLY_KEYBOARD,
             )
-
-        await update.message.reply_text(
-            "برای ساخت استیکر بعدی عکس جدید بفرست یا دکمهٔ شروع مجدد را بزن.",
-            reply_markup=REPLY_KEYBOARD,
-        )
 
     except (OSError, ValueError) as error:
         logger.exception("خطا هنگام ساخت استیکر")
         await update.message.reply_text(
-            f"ساخت استیکر انجام نشد. رنگ را با نام ساده یا کد HEX مثل #FF0000 بفرست.\n"
-            f"جزئیات خطا: {error}",
+            f"ساخت استیکر انجام نشد. رنگ را با نام ساده (مثل آبی) یا کد HEX بفرست.\nخطا: {error}",
             reply_markup=REPLY_KEYBOARD,
         )
         return GET_COLOR
@@ -267,7 +273,7 @@ async def handle_color(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     return GET_PHOTO
 
 
-# وب‌سرور ساده Flask برای زنده ماندن ربات روی رندر
+# وب‌سرور Flask برای زنده ماندن ربات روی رندر
 app = Flask(__name__)
 
 
@@ -293,16 +299,14 @@ def main():
         entry_points=[CommandHandler("start", start)],
         states={
             GET_PHOTO: [
-                MessageHandler(filters.Regex(f"^{RESTART_TEXT}$"), cancel),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_photo),
                 MessageHandler(filters.PHOTO, handle_photo),
             ],
             GET_TEXT: [
-                MessageHandler(filters.Regex(f"^{RESTART_TEXT}$"), cancel),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text),
                 MessageHandler(filters.PHOTO, handle_photo),
             ],
             GET_COLOR: [
-                MessageHandler(filters.Regex(f"^{RESTART_TEXT}$"), cancel),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, handle_color),
                 MessageHandler(filters.PHOTO, handle_photo),
             ],
