@@ -129,6 +129,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     try:
         reshaped_text = arabic_reshaper.reshape(user_text)
         display_text = get_display(reshaped_text)
+        # اصلاح ترتیب کلمات فارسی برای نمایش صحیح روی عکس
+        display_text = " ".join(display_text.split()[::-1])
     except Exception:
         logger.exception("خطا هنگام آماده‌سازی متن فارسی")
         await update.message.reply_text(
